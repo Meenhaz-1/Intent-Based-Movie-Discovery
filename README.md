@@ -100,10 +100,10 @@ cp .env.example .env
 # TMDB_API_KEY=your_api_key_here
 ```
 
-5. **Download MovieLens data** (Phase 1)
-   - Visit https://grouplens.org/datasets/movielens/25m/
-   - Download `ml-25m.zip` and extract to `data/movielens/`
-   - Or run `phase_1.ipynb` which handles the download
+5. **Download external datasets**
+   - See [Large Files Not Included](#large-files-not-included) for the exact files and sources.
+   - At minimum, download MovieLens 25M into `data/movielens/`.
+   - Then run the notebooks in order to rebuild `checkpoints/` and `results/`.
 
 6. **Run the interactive app**
 ```bash
@@ -111,6 +111,40 @@ streamlit run app.py
 ```
 
 The app opens at `http://localhost:8501`
+
+## Large Files Not Included
+
+Large datasets, generated indexes, caches, and local secrets are intentionally excluded from git. Download or regenerate the following files after cloning the repository.
+
+| Local path | Required? | Source / how to create |
+|------------|-----------|------------------------|
+| `data/movielens/` | Required | Download MovieLens 25M from https://grouplens.org/datasets/movielens/25m/. Extract `ml-25m.zip` so files like `movies.csv`, `ratings.csv`, `tags.csv`, `links.csv`, `genome-scores.csv`, and `genome-tags.csv` are directly inside `data/movielens/`. |
+| `data/imdb/title.basics.tsv.gz` | Optional for Phase 1 enrichment | Download from https://datasets.imdbws.com/title.basics.tsv.gz, or let `phase_1.ipynb` download it. |
+| `data/imdb/title.ratings.tsv.gz` | Optional for Phase 1 enrichment | Download from https://datasets.imdbws.com/title.ratings.tsv.gz, or let `phase_1.ipynb` download it. |
+| `data/tmdb/tmdb_5000_movies.csv` | Optional TMDB metadata | Download the TMDB 5000 Movie Dataset from https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata and extract this file into `data/tmdb/`. |
+| `data/tmdb/tmdb_5000_credits.csv` | Optional TMDB metadata | Download the same Kaggle dataset and extract this file into `data/tmdb/`. |
+| `.env` | Required for poster/details API calls | Copy `.env.example` to `.env`, then add your TMDB API key from https://www.themoviedb.org/settings/api. |
+| `checkpoints/` | Generated | Run `phase_1.ipynb` through `phase_4.ipynb`. This creates files such as `movies.duckdb`, `movie_ids.csv`, `embeddings.npy`, `faiss_index.bin`, and local SQLite state. |
+| `results/` | Generated | Created by the notebooks for comparison reports, evaluation output, and sample recommendations. |
+
+Suggested folder layout after downloads:
+
+```text
+data/
+  movielens/
+    movies.csv
+    ratings.csv
+    tags.csv
+    links.csv
+    genome-scores.csv
+    genome-tags.csv
+  imdb/
+    title.basics.tsv.gz
+    title.ratings.tsv.gz
+  tmdb/
+    tmdb_5000_movies.csv
+    tmdb_5000_credits.csv
+```
 
 ## 📖 Usage
 

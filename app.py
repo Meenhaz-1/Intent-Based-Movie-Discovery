@@ -27,6 +27,10 @@ REQUIRED_FILES = [
     MOVIELENS_DIR / "tags.csv",
 ]
 
+RECENCY_HALF_LIFE_YEARS = 20
+RECENCY_WEIGHT = 0.20
+RELEVANCE_WEIGHT = 0.80
+
 
 st.set_page_config(page_title="Movie Search and Recommendations", layout="wide")
 
@@ -115,6 +119,53 @@ def extract_release_year(title):
     return int(match.group(1)) if match else None
 
 
+def calculate_freshness(title):
+    release_year = extract_release_year(title)
+    if release_year is None:
+        return 0.0
+
+    age_years = max(0, datetime.now().year - release_year)
+    return 0.5 ** (age_years / RECENCY_HALF_LIFE_YEARS)
+
+
+def normalize_scores(scores):
+    scores = np.asarray(scores, dtype=float)
+    if len(scores) == 0:
+        return scores
+
+    finite_scores = scores[np.isfinite(scores)]
+    if len(finite_scores) == 0:
+        return np.zeros_like(scores)
+
+    min_score = finite_scores.min()
+    max_score = finite_scores.max()
+    if np.isclose(max_score, min_score):
+        return np.ones_like(scores)
+
+    normalized = (scores - min_score) / (max_score - min_score)
+    return np.nan_to_num(normalized, nan=0.0, posinf=1.0, neginf=0.0)
+
+
+def rank_with_recency(candidates):
+    relevance_scores = [candidate["relevance_score"] for candidate in candidates]
+    normalized_scores = normalize_scores(relevance_scores)
+    ranked = []
+
+    for candidate, normalized_score in zip(candidates, normalized_scores):
+        freshness = calculate_freshness(candidate["movie"]["title"])
+        adjusted_score = (RELEVANCE_WEIGHT * normalized_score) + (RECENCY_WEIGHT * freshness)
+        ranked.append(
+            {
+                **candidate,
+                "adjusted_score": adjusted_score,
+                "freshness_score": freshness,
+                "normalized_relevance": normalized_score,
+            }
+        )
+
+    return sorted(ranked, key=lambda item: item["adjusted_score"], reverse=True)
+
+
 def display_movie_card(title, genres, score):
     col1, col2 = st.columns([1, 3])
     movie_info = tmdb_helper.fetch_movie_info(title, extract_release_year(title))
@@ -186,9 +237,9 @@ with tab1:
     with col1:
         query = st.text_input("Enter a search query", placeholder="Interstellar or space exploration")
     with col2:
-        search_type = st.selectbox("Find", ["Movie or Theme", "Title Only", "Theme Only"], label_visibility="collapsed")
+        search_type = st.selectbox("Search scope", ["Movie or Theme", "Title Only", "Theme Only"])
     with col3:
-        approach = st.selectbox("Method", ["Semantic", "Keyword (BM25)"], label_visibility="collapsed")
+        approach = st.selectbox("Retrieval method", ["Semantic", "Keyword (BM25)"])
 
     if query:
         n = st.slider("Results", 5, 20, 10)
@@ -214,42 +265,62 @@ with tab1:
             if approach == "Semantic":
                 query_emb = embedding_model.encode(query, convert_to_numpy=True)
                 query_emb = query_emb / np.linalg.norm(query_emb)
-                distances, indices = faiss_index.search(query_emb.astype("float32").reshape(1, -1), n + 5)
+                candidate_count = min(len(movies_df), max(n * 5, n + 25))
+                distances, indices = faiss_index.search(query_emb.astype("float32").reshape(1, -1), candidate_count)
 
+                candidates = []
                 for pos, idx in enumerate(indices[0]):
+                    if idx < 0 or idx >= len(movies_df):
+                        continue
                     movie = movies_df.iloc[idx]
                     if movie["movieId"] in seen_movie_ids:
                         continue
+                    candidates.append(
+                        {
+                            "movie": movie,
+                            "relevance_score": float(distances[0][pos]),
+                        }
+                    )
+
+                for candidate in rank_with_recency(candidates)[: max(0, n - len(results))]:
+                    movie = candidate["movie"]
                     results.append(
                         {
                             "movieId": movie["movieId"],
                             "Title": movie["title"],
                             "Genres": movie.get("genres", "N/A"),
-                            "Score": f"{distances[0][pos]:.3f}",
+                            "Score": f"{candidate['adjusted_score']:.3f} adjusted",
                         }
                     )
                     seen_movie_ids.add(movie["movieId"])
-                    if len(results) >= n:
-                        break
                 st.markdown("#### Semantic Search Results")
             else:
                 scores = bm25.get_scores(query.lower().split())
-                top_idx = np.argsort(scores)[::-1]
+                candidate_count = max(n * 5, n + 25)
+                top_idx = [idx for idx in np.argsort(scores)[::-1] if scores[idx] > 0][:candidate_count]
+                candidates = []
                 for idx in top_idx:
                     movie = movies_df.iloc[idx]
                     if movie["movieId"] in seen_movie_ids:
                         continue
+                    candidates.append(
+                        {
+                            "movie": movie,
+                            "relevance_score": float(scores[idx]),
+                        }
+                    )
+
+                for candidate in rank_with_recency(candidates)[: max(0, n - len(results))]:
+                    movie = candidate["movie"]
                     results.append(
                         {
                             "movieId": movie["movieId"],
                             "Title": movie["title"],
                             "Genres": movie.get("genres", "N/A"),
-                            "Score": f"{scores[idx]:.3f}" if scores[idx] > 0 else "0.000",
+                            "Score": f"{candidate['adjusted_score']:.3f} adjusted",
                         }
                     )
                     seen_movie_ids.add(movie["movieId"])
-                    if len(results) >= n:
-                        break
                 st.markdown("#### Keyword Search Results")
 
         if results:
@@ -357,20 +428,29 @@ with tab4:
                 st.stop()
 
             user_emb = user_emb / norm
-            distances, indices = faiss_index.search(user_emb.astype("float32").reshape(1, -1), n + len(liked_ids))
+            candidate_count = min(len(movies_df), max(n * 8, n + len(liked_ids) + 50))
+            distances, indices = faiss_index.search(user_emb.astype("float32").reshape(1, -1), candidate_count)
 
             st.markdown(f"#### Based on Your {len(liked_ids)} Likes")
-            rec_count = 0
+            candidates = []
             for pos, idx in enumerate(indices[0]):
-                if rec_count >= n:
-                    break
+                if idx < 0 or idx >= len(movies_df):
+                    continue
                 movie = movies_df.iloc[idx]
                 if movie["movieId"] in liked_ids:
                     continue
+                candidates.append(
+                    {
+                        "movie": movie,
+                        "relevance_score": float(distances[0][pos]),
+                    }
+                )
 
+            for candidate in rank_with_recency(candidates)[:n]:
+                movie = candidate["movie"]
                 col_left, col_right = st.columns([2, 1])
                 with col_left:
-                    display_movie_card(movie["title"], movie.get("genres", "N/A"), f"{distances[0][pos]:.3f}")
+                    display_movie_card(movie["title"], movie.get("genres", "N/A"), f"{candidate['adjusted_score']:.3f} adjusted")
                 with col_right:
                     if st.button("Add", key=f"rec_{movie['movieId']}"):
                         conn.execute(
@@ -380,7 +460,6 @@ with tab4:
                         conn.commit()
                         st.success(f"Added '{movie['title']}'")
                         st.rerun()
-                rec_count += 1
         else:
             st.error("Could not generate recommendations from the saved likes.")
 
@@ -392,6 +471,7 @@ st.markdown(
 - Search compares semantic embeddings with BM25 keyword matching.
 - Similar movies come from the FAISS embedding index.
 - Likes are stored locally in SQLite.
+- Search and recommendations apply a moderate newer-movie boost when relevance is close.
 - Recommendations in the app use a content-based user vector; Phase 4 explores collaborative filtering as a notebook experiment.
 """
 )

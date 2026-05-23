@@ -31,6 +31,20 @@ The prototype supports four connected discovery jobs:
 
 The Streamlit app keeps the recommendation path intentionally lightweight and content-based. The Phase 4 notebook explores collaborative filtering and blended scoring, but the interactive app focuses on the path that works most reliably with sparse user input.
 
+## Product Walkthrough
+
+### Search by intent
+
+![Movie search experience](docs/assets/screenshots/Movie%20Search.png)
+
+### Explore similar movies
+
+![Similar movie suggestions](docs/assets/screenshots/Similar%20Movie%20Suggestions.png)
+
+### Get personalized recommendations
+
+![Personalized movie recommendations](docs/assets/screenshots/Personalized%20Movie%20Recommendations.png)
+
 ## What This Demonstrates
 
 - Product framing: starts from a user problem rather than an algorithm.

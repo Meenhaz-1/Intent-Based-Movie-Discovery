@@ -1,9 +1,9 @@
 """TMDB API helper for fetching movie details and posters."""
-import requests
-import pandas as pd
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
+
+import requests
 
 TMDB_API_KEY = None  # Will be set from env or user input
 TMDB_BASE_URL = "https://api.themoviedb.org/3"
@@ -19,15 +19,16 @@ def load_cache():
     """Load cached TMDB data."""
     if CACHE_FILE.exists():
         try:
-            with open(CACHE_FILE, 'r') as f:
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except (OSError, json.JSONDecodeError):
             return {}
     return {}
 
 def save_cache(cache):
     """Save TMDB data to cache."""
-    with open(CACHE_FILE, 'w') as f:
+    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
         json.dump(cache, f, indent=2)
 
 def search_tmdb(title, year=None):
@@ -138,7 +139,7 @@ def get_poster_html(movie_info):
     html = f"""
     <div style="text-align: center;">
         <img src="{movie_info['poster_url']}" style="max-width: 200px; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.3);">
-        <p style="margin-top: 10px; font-weight: bold;">{movie_info.get('rating', 0):.1f}★ ({movie_info.get('vote_count', 0)} votes)</p>
+        <p style="margin-top: 10px; font-weight: bold;">Rating: {movie_info.get('rating', 0):.1f} ({movie_info.get('vote_count', 0)} votes)</p>
     </div>
     """
     return html

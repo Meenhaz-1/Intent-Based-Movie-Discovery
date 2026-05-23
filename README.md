@@ -1,133 +1,153 @@
-# 🎬 Movie Recommendation System
+# Intent-Based Movie Discovery
 
-A complete end-to-end movie recommendation engine built with Python, combining **content-based** and **collaborative filtering** approaches. Learn how modern recommendation systems work with a dataset of 62K movies, 25M ratings, and 1.1M user tags.
+A semantic search and recommendation prototype for finding movies by meaning, not just title.
 
-## ✨ Features
+## Executive Summary
 
-### Phase 1: Data Sourcing & Exploration ✅
-- Load 62K movies from MovieLens with 25M ratings and 1.1M tags
-- Optional IMDB data integration (746K movies, 1.67M ratings)
-- DuckDB for analytics, SQLite for user state persistence
-- Comprehensive data profiling with null patterns and summary statistics
+Intent-Based Movie Discovery is an end-to-end product prototype that explores a common discovery problem: people often know the kind of movie they want, but not the exact title or keywords that a catalog search expects.
 
-### Phase 2: Content-Based Similarity ✅
-- **Approach A**: TF-IDF vectorization (5K features) with cosine similarity
-- **Approach B**: Dense embeddings (384-dim) using `sentence-transformers` + FAISS IndexFlatIP
-- Side-by-side comparison of both approaches
-- Fast similarity search for 62K movies
+The project uses MovieLens 25M data to build a local movie discovery experience with semantic search, keyword search, content similarity, lightweight personalization, and optional TMDB enrichment. It is structured as a product case study: the notebooks show the data and modeling progression, while the Streamlit app demonstrates the final user-facing workflow.
 
-### Phase 3: Semantic Search ✅
-- **Approach A**: BM25 keyword search on genres + user tags
-- **Approach B**: Semantic search using embeddings + FAISS
-- Smart hybrid search: title match → thematic results
-- User-selectable search modes (Movie/Theme/Title-Only)
+The core product question is simple: how far can a movie discovery experience get by understanding user intent before it has enough behavioral history for traditional recommendations?
 
-### Phase 4: Personalized Recommendations ✅
-- **Content-based**: User preference vectors from movie embeddings
-- **Collaborative Filtering**: User similarity via cosine distance
-- **Cold-start mitigation**: Content-only (0-10 likes) → Blended (10+ likes)
-- **Configurable blending**: 70% content + 30% CF (adjustable)
-- User preference persistence with SQLite
-- Offline evaluation metrics (Precision@K, NDCG@K)
+## Product Problem
 
-### Interactive Streamlit UI ✅
-- 🔍 **Search**: Find movies by title or theme
-- 📊 **Similar**: Discover movies like your favorites
-- ❤️ **My Likes**: Track your movie profile
-- 🎯 **Recommendations**: Get personalized picks
-- 🎬 **Movie Details**: Posters, plots, ratings, cast (via TMDB)
+Movie discovery breaks down in three familiar moments:
 
-## 🏗️ Project Structure
+- A user remembers a theme, mood, or premise, but not the title.
+- A keyword search returns literal matches, but misses adjacent ideas.
+- A new user has too little history for collaborative filtering to be useful.
 
-```
-Movie-semantic-search-recommender/
-├── app.py                        # Streamlit interactive UI
-├── tmdb_helper.py                # TMDB API integration
-├── phase_1.ipynb                 # Data sourcing & exploration
-├── phase_2.ipynb                 # Content-based similarity
-├── phase_3.ipynb                 # Semantic search
-├── phase_4.ipynb                 # Personalized recommendations
-├── requirements_phase4.txt        # All dependencies
-├── .env.example                  # Environment template
-├── .env                          # Your TMDB API key (not committed)
-├── .gitignore                    # Git exclusions
-├── checkpoints/                  # Saved models & embeddings
-│   ├── embeddings.npy            # 62K × 384 embedding matrix
-│   ├── faiss_index.bin           # FAISS vector index
-│   ├── movie_ids.csv             # Movie metadata
-│   ├── user_preferences.sqlite   # User like history
-│   └── tmdb_cache.json           # Cached TMDB data
-├── results/                      # Analysis & recommendations
-├── data/movielens/               # MovieLens dataset (62K movies, 25M ratings)
-└── README.md                     # This file
-```
+This project targets that cold-start gap. Instead of starting with heavy personalization, it begins with intent capture: let the user search by meaning, find adjacent movies, like a few examples, and then build a simple preference profile from those signals.
 
-## 🚀 Quick Start
+## Solution Overview
 
-### Prerequisites
-- Python 3.10+
-- pip or conda
-- TMDB API key (free from [themoviedb.org](https://www.themoviedb.org/settings/api))
-- ~10 GB disk space for MovieLens data
+The prototype supports four connected discovery jobs:
 
-### Installation
+- Search by title, genre, tag, or natural-language theme.
+- Compare lexical retrieval with semantic retrieval.
+- Find similar movies from embedding similarity.
+- Generate content-based recommendations from a user's liked movies.
 
-1. **Clone the repository**
-```bash
-git clone https://github.com/Meenhaz-1/Movie-semantic-search-recommender.git
-cd Movie-semantic-search-recommender
+The Streamlit app keeps the recommendation path intentionally lightweight and content-based. The Phase 4 notebook explores collaborative filtering and blended scoring, but the interactive app focuses on the path that works most reliably with sparse user input.
+
+## What This Demonstrates
+
+- Product framing: starts from a user problem rather than an algorithm.
+- Prioritization: solves cold-start discovery first before adding heavier personalization.
+- Technical fluency: compares BM25, TF-IDF, sentence embeddings, FAISS, SQLite, and DuckDB in a practical workflow.
+- End-to-end execution: moves from raw data ingestion to generated artifacts to an interactive app.
+- Tradeoff awareness: documents where the prototype is strong, where it is limited, and what would be needed before productionizing.
+
+## Product And Technical Decisions
+
+| Decision | Rationale | Tradeoff |
+| --- | --- | --- |
+| Use semantic search alongside keyword search | Users describe intent in varied language; exact keyword overlap is not enough. | Embeddings are less interpretable than lexical search and require generated artifacts. |
+| Start personalization with content-based recommendations | Works with only a few likes, which fits the cold-start problem. | Can become narrower than collaborative recommendations when user history is rich. |
+| Keep collaborative filtering in the notebook layer | Useful for experimentation and comparison without overstating app readiness. | The Streamlit app does not yet expose the blended recommender path. |
+| Use local SQLite for user likes | Keeps the prototype easy to run without external services. | Not designed for multi-user production deployment. |
+| Exclude datasets, checkpoints, and caches from git | Keeps the public repo lightweight and safe to share. | New users must rebuild artifacts locally before running the app. |
+| Add optional TMDB enrichment | Improves browsing quality with posters, plots, ratings, release dates, and cast. | Requires an API key and depends on third-party availability. |
+
+## System Overview
+
+The project is organized as a four-phase pipeline:
+
+| Phase | Focus | Output |
+| --- | --- | --- |
+| Phase 1 | Data sourcing and profiling | MovieLens data loaded and profiled with local database artifacts. |
+| Phase 2 | Content-based similarity | TF-IDF features, sentence embeddings, and FAISS similarity index. |
+| Phase 3 | Natural-language search | BM25 keyword search and semantic search comparison. |
+| Phase 4 | Personalization | User preference vectors, collaborative filtering experiments, and evaluation notes. |
+
+The app depends on generated local artifacts, especially:
+
+```text
+checkpoints/embeddings.npy
+checkpoints/faiss_index.bin
+checkpoints/movie_ids.csv
+data/movielens/movies.csv
+data/movielens/tags.csv
 ```
 
-2. **Create virtual environment**
+## Repository Guide
+
+```text
+.
+|-- app.py                         # Streamlit app
+|-- tmdb_helper.py                 # Optional TMDB poster/details lookup
+|-- phase_1.ipynb                  # Data sourcing and profiling
+|-- phase_2.ipynb                  # Content-based similarity
+|-- phase_3.ipynb                  # Keyword and semantic search
+|-- phase_4.ipynb                  # Personalization and CF experiments
+|-- requirements.txt               # Main environment for the full project
+|-- requirements_phase*.txt        # Smaller per-phase dependency files
+|-- docs/
+|   |-- QUICKSTART.md
+|   |-- Movie_Recommendation_PRD_v1.0.docx
+|   `-- Movie_Recommendation_TRD_v1.0.docx
+|-- data/                          # Local datasets, not committed
+|-- checkpoints/                   # Generated models/indexes, not committed
+`-- results/                       # Generated reports, not committed
+```
+
+## Run Locally
+
+Use Python 3.10 or newer.
+
 ```bash
 python -m venv .venv
-# On Windows:
+```
+
+On Windows:
+
+```bash
 .venv\Scripts\activate
-# On macOS/Linux:
+```
+
+On macOS or Linux:
+
+```bash
 source .venv/bin/activate
 ```
 
-3. **Install dependencies**
+Install dependencies:
+
 ```bash
-pip install -r requirements_phase4.txt
+pip install -r requirements.txt
 ```
 
-4. **Set up environment variables**
+Optional: add a TMDB API key for posters and movie details.
+
 ```bash
-# Copy example and add your TMDB API key
 cp .env.example .env
-# Edit .env:
-# TMDB_API_KEY=your_api_key_here
 ```
 
-5. **Download external datasets**
-   - See [Large Files Not Included](#large-files-not-included) for the exact files and sources.
-   - At minimum, download MovieLens 25M into `data/movielens/`.
-   - Then run the notebooks in order to rebuild `checkpoints/` and `results/`.
+Then edit `.env`:
 
-6. **Run the interactive app**
 ```bash
-streamlit run app.py
+TMDB_API_KEY=your_key_here
 ```
 
-The app opens at `http://localhost:8501`
+The app still runs without TMDB. It will skip posters and extra movie details.
 
-## Large Files Not Included
+### Data And Generated Files
 
-Large datasets, generated indexes, caches, and local secrets are intentionally excluded from git. Download or regenerate the following files after cloning the repository.
+Large files are not committed to this repo. After cloning, download or regenerate them locally.
 
-| Local path | Required? | Source / how to create |
-|------------|-----------|------------------------|
-| `data/movielens/` | Required | Download MovieLens 25M from https://grouplens.org/datasets/movielens/25m/. Extract `ml-25m.zip` so files like `movies.csv`, `ratings.csv`, `tags.csv`, `links.csv`, `genome-scores.csv`, and `genome-tags.csv` are directly inside `data/movielens/`. |
-| `data/imdb/title.basics.tsv.gz` | Optional for Phase 1 enrichment | Download from https://datasets.imdbws.com/title.basics.tsv.gz, or let `phase_1.ipynb` download it. |
-| `data/imdb/title.ratings.tsv.gz` | Optional for Phase 1 enrichment | Download from https://datasets.imdbws.com/title.ratings.tsv.gz, or let `phase_1.ipynb` download it. |
-| `data/tmdb/tmdb_5000_movies.csv` | Optional TMDB metadata | Download the TMDB 5000 Movie Dataset from https://www.kaggle.com/datasets/tmdb/tmdb-movie-metadata and extract this file into `data/tmdb/`. |
-| `data/tmdb/tmdb_5000_credits.csv` | Optional TMDB metadata | Download the same Kaggle dataset and extract this file into `data/tmdb/`. |
-| `.env` | Required for poster/details API calls | Copy `.env.example` to `.env`, then add your TMDB API key from https://www.themoviedb.org/settings/api. |
-| `checkpoints/` | Generated | Run `phase_1.ipynb` through `phase_4.ipynb`. This creates files such as `movies.duckdb`, `movie_ids.csv`, `embeddings.npy`, `faiss_index.bin`, and local SQLite state. |
-| `results/` | Generated | Created by the notebooks for comparison reports, evaluation output, and sample recommendations. |
+| Local path | Required? | How to get it |
+| --- | --- | --- |
+| `data/movielens/` | Required | Download MovieLens 25M from https://grouplens.org/datasets/movielens/25m/ and extract files such as `movies.csv`, `ratings.csv`, `tags.csv`, and `links.csv` into this folder. |
+| `data/imdb/title.basics.tsv.gz` | Optional | Download from https://datasets.imdbws.com/title.basics.tsv.gz, or let Phase 1 try to download it. |
+| `data/imdb/title.ratings.tsv.gz` | Optional | Download from https://datasets.imdbws.com/title.ratings.tsv.gz, or let Phase 1 try to download it. |
+| `data/tmdb/tmdb_5000_movies.csv` | Optional | Download from the TMDB 5000 Movie Dataset on Kaggle and place it in `data/tmdb/`. |
+| `data/tmdb/tmdb_5000_credits.csv` | Optional | Download from the same Kaggle dataset and place it in `data/tmdb/`. |
+| `.env` | Optional | Copy `.env.example` and add a TMDB key for posters/details. |
+| `checkpoints/` | Generated | Run the notebooks in order. This creates the DuckDB database, embeddings, FAISS index, movie ID mapping, and local SQLite state. |
+| `results/` | Generated | Created by the notebooks for comparisons, evaluation notes, and sample outputs. |
 
-Suggested folder layout after downloads:
+Expected local layout after downloading MovieLens:
 
 ```text
 data/
@@ -138,194 +158,58 @@ data/
     links.csv
     genome-scores.csv
     genome-tags.csv
-  imdb/
-    title.basics.tsv.gz
-    title.ratings.tsv.gz
-  tmdb/
-    tmdb_5000_movies.csv
-    tmdb_5000_credits.csv
 ```
 
-## 📖 Usage
+### Build The Artifacts
 
-### Interactive App (Recommended)
+Run the notebooks in order:
+
+```bash
+jupyter notebook phase_1.ipynb
+jupyter notebook phase_2.ipynb
+jupyter notebook phase_3.ipynb
+jupyter notebook phase_4.ipynb
+```
+
+### Start The App
 
 ```bash
 streamlit run app.py
 ```
 
-**Features:**
+Streamlit usually opens the app at:
 
-1. **🔍 Search Tab**
-   - Find movies by title: "Interstellar" → exact match + similar films
-   - Find by theme: "space exploration" → thematic search
-   - Choose: Semantic (meaning) vs Keyword (BM25)
-   - Click "❤️ Add" to add to your profile
-
-2. **📊 Similar Tab**
-   - Pick any movie → see 10 most similar ones
-   - Uses embedding-based similarity
-   - Add similar movies to your likes
-
-3. **❤️ My Likes Tab**
-   - View all movies you've liked
-   - Track progress toward 15 movies
-   - Remove movies with 🗑️ button
-   - See strategy change at 10 likes
-
-4. **🎯 Recommendations Tab**
-   - Get personalized picks based on your likes
-   - 0-10 likes: Content-based only
-   - 10+ likes: Blended (70% content + 30% CF)
-   - Recommendations improve as you add more movies
-
-### Jupyter Notebooks
-
-For detailed understanding of each phase:
-
-```bash
-jupyter notebook phase_1.ipynb   # Data exploration
-jupyter notebook phase_2.ipynb   # Content-based similarity
-jupyter notebook phase_3.ipynb   # Semantic search
-jupyter notebook phase_4.ipynb   # Personalized recommendations
+```text
+http://localhost:8501
 ```
 
-## ⚙️ Configuration
+If required local data or checkpoints are missing, the app stops with a short list of the files it needs.
 
-### TMDB API Key
+## Current Constraints And Next Iterations
 
-Edit `.env` with your TMDB API key:
-```bash
-TMDB_API_KEY=your_key_here
-```
+This is a local prototype, not a production recommender service. The current implementation is strongest as a product and technical case study for intent-based discovery.
 
-The app automatically:
-- Loads from `.env` on startup
-- Falls back to manual input if `.env` missing
-- Caches results to avoid API rate limits
+Current constraints:
 
-### Recommendation Blending
+- The app depends on generated artifacts that are too large to keep in git.
+- MovieLens tags are useful, but they are not a substitute for full plot summaries or editorial metadata.
+- The interactive recommendation path is content-based; collaborative filtering and blended scoring are explored in the Phase 4 notebook.
+- TMDB enrichment is optional and depends on API availability and cache freshness.
 
-In `app.py`, adjust the blend ratio:
-```python
-blend_ratio = 0.7  # 70% content-based, 30% collaborative filtering
-```
+Potential next iterations:
 
-## 📊 Results & Performance
+- Expose the blended recommendation strategy in the app once evaluation supports it.
+- Add richer query understanding from plots, reviews, or editorial metadata.
+- Add evaluation slices for theme search, title search, and cold-start recommendation quality.
+- Package the artifact build process into a repeatable command-line workflow.
+- Add a lightweight demo dataset so reviewers can run the app without downloading MovieLens 25M.
 
-### Datasets
-- **MovieLens**: 62,423 movies, 25M ratings, 1.1M tags
-- **Embeddings**: 384-dimensional vectors via `sentence-transformers`
-- **FAISS Index**: Exact similarity search over 62K movies
+## Supporting Documents
 
-### Performance (on 8GB RAM)
-- Search query: <100ms
-- Recommendation generation: <50ms
-- BM25 indexing: <5s
-- Cold start with 5 likes: instant
+- [Quickstart](docs/QUICKSTART.md)
+- [Product requirements](docs/Movie_Recommendation_PRD_v1.0.docx)
+- [Technical requirements](docs/Movie_Recommendation_TRD_v1.0.docx)
 
-### Recommendation Quality
+## License
 
-| Likes | Strategy | Precision@10 | Notes |
-|-------|----------|-------------|-------|
-| 5 | Content-only | 20% | Few overlaps with test set |
-| 10 | Blended (70/30) | Variable | CF starts finding users |
-| 15 | Blended (70/30) | Variable | More diverse, user-specific |
-
-## 🎓 Key Learnings
-
-### 1. Embeddings vs Keyword Search
-- **TF-IDF**: Fast, interpretable, keyword-dependent
-- **Embeddings**: Slower, captures meaning, works on themes
-- **BM25**: Best at genre matching
-- **Semantic**: Best at thematic concepts
-
-### 2. Cold-Start Problem
-- **Content-based**: Works with 1-2 likes (no collaborative data needed)
-- **Collaborative Filtering**: Needs 10+ likes to find similar users
-- **Mitigation**: Blend both approaches as data grows
-
-### 3. User Modeling
-- User preference vector = average of liked movie embeddings
-- Works surprisingly well with just 5-10 examples
-- Becomes increasingly accurate with more data
-
-### 4. Recommendation Blending
-- 70% content + 30% CF provides best user experience
-- Pure content-based: too narrow, ignores community
-- Pure CF: requires too much data, cold-start fails
-- Blended: captures both personalization + discovery
-
-## 🔐 Security
-
-- ✅ API keys in `.env` (not in git)
-- ✅ `.env` listed in `.gitignore`
-- ✅ Local SQLite (no external DB credentials)
-- ✅ TMDB data cached locally (minimize API calls)
-
-## 📚 Technical Stack
-
-| Component | Technology | Why |
-|-----------|-----------|-----|
-| Data Loading | pandas | Simple CSV/JSON handling |
-| Embeddings | sentence-transformers | Lightweight, pre-trained, accurate |
-| Vector Search | FAISS | Fast ANN for 62K vectors |
-| Keyword Search | rank-bm25 | Pure Python, no dependencies |
-| Databases | DuckDB + SQLite | No server needed, local only |
-| UI | Streamlit | Interactive, zero-config deployment |
-| Caching | JSON files | Simple, persistent, no setup |
-
-## 🚀 Next Steps
-
-### Deploy the App
-```bash
-# Docker (optional)
-docker build -t movie-recommender .
-docker run -p 8501:8501 movie-recommender
-
-# Or Streamlit Cloud
-streamlit run app.py --logger.level=info
-```
-
-### Enhancements
-- [ ] Fine-tune embeddings on MovieLens ratings
-- [ ] Add review sentiment to recommendations
-- [ ] Matrix factorization for CF
-- [ ] A/B testing framework
-- [ ] Real-time feedback loop
-
-## 📝 License
-
-MIT License - Free to use for learning or commercial purposes
-
-## 🤝 Contributing
-
-This is a learning project. Contributions welcome!
-
-Areas for improvement:
-- Advanced CF algorithms (SVD, NMF)
-- Deep learning recommendations (neural CF, attention)
-- Multi-armed bandit exploration/exploitation
-- Per-user blending ratios
-- Real-time model updates
-
-## 📞 Support
-
-Questions? Check:
-1. Phase notebooks for implementation details
-2. Streamlit app code for usage examples
-3. TMDB docs for API questions
-
----
-
-**Built with ❤️ as a comprehensive learning project for recommendation systems**
-
-Perfect for:
-- Learning recommendation system architectures
-- Understanding content-based + collaborative filtering
-- Exploring embeddings and semantic search
-- Building production-grade UIs with Streamlit
-- Working with real-world movie data
-
-Last updated: May 2026
-Status: ✅ All 4 phases complete | ✅ Interactive UI live | ✅ Production ready
+MIT. See [LICENSE](LICENSE).

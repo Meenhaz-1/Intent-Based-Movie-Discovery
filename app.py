@@ -116,6 +116,59 @@ def extract_release_year(title):
     return int(match.group(1)) if match else None
 
 
+def extract_year_constraints_from_query(query):
+    """
+    Extract year constraints from natural language query.
+
+    Examples:
+    - "comedy from 2000" -> (2000, 2030)
+    - "sci-fi since 1980" -> (1980, 2030)
+    - "action 2010 onwards" -> (2010, 2030)
+    - "drama 1990-2020" -> (1990, 2020)
+    - "movies after 2015" -> (2015, 2030)
+    """
+    import re
+    from datetime import datetime
+
+    current_year = datetime.now().year
+    min_year = 1900
+    max_year = current_year
+
+    # Pattern: "from YYYY" or "since YYYY" or "YYYY onwards"
+    from_match = re.search(r'\b(?:from|since)\s+(\d{4})\b', query, re.IGNORECASE)
+    if from_match:
+        min_year = int(from_match.group(1))
+        return (min_year, max_year)
+
+    # Pattern: "YYYY onwards" or "YYYY onward"
+    onwards_match = re.search(r'\b(\d{4})\s+onwards?\b', query, re.IGNORECASE)
+    if onwards_match:
+        min_year = int(onwards_match.group(1))
+        return (min_year, max_year)
+
+    # Pattern: "after YYYY"
+    after_match = re.search(r'\bafter\s+(\d{4})\b', query, re.IGNORECASE)
+    if after_match:
+        min_year = int(after_match.group(1))
+        return (min_year, max_year)
+
+    # Pattern: "before YYYY"
+    before_match = re.search(r'\bbefore\s+(\d{4})\b', query, re.IGNORECASE)
+    if before_match:
+        max_year = int(before_match.group(1))
+        return (min_year, max_year)
+
+    # Pattern: "YYYY-YYYY" (range)
+    range_match = re.search(r'\b(\d{4})\s*-\s*(\d{4})\b', query)
+    if range_match:
+        min_year = int(range_match.group(1))
+        max_year = int(range_match.group(2))
+        return (min_year, max_year)
+
+    # No year constraint found
+    return None
+
+
 def filter_by_year(movies_list, min_year, max_year):
     """Filter movies by release year."""
     filtered = []
@@ -342,17 +395,19 @@ with tab1:
     with col3:
         approach = st.selectbox("Retrieval method", ["Semantic", "Keyword (BM25)"])
 
-    # Year range filter
-    col_year1, col_year2, col_year3 = st.columns([1, 1, 1])
-    with col_year1:
-        min_year = st.number_input("From year", min_value=1900, max_value=2030, value=1900, key="min_year_search")
-    with col_year2:
-        max_year = st.number_input("To year", min_value=1900, max_value=2030, value=2030, key="max_year_search")
-    with col_year3:
-        st.empty()  # For alignment
-
     if query:
         n = st.slider("Results", 5, 20, 10)
+
+        # Extract year constraints from query (e.g., "comedy from 2000")
+        year_range = extract_year_constraints_from_query(query)
+        if year_range:
+            min_year, max_year = year_range
+            st.info(f"Filtering to movies from {min_year} onwards")
+        else:
+            from datetime import datetime
+            min_year = 1900
+            max_year = datetime.now().year
+
         results = []
         seen_movie_ids = set()
 
@@ -434,10 +489,14 @@ with tab1:
                 st.markdown("#### Keyword Search Results")
 
         # Apply year filter to results
-        filtered_results = filter_by_year(results, min_year, max_year)
+        if year_range:
+            filtered_results = filter_by_year(results, min_year, max_year)
+        else:
+            filtered_results = results
 
         if filtered_results:
-            st.markdown(f"#### Results ({len(filtered_results)} found, filtered by year {min_year}-{max_year})")
+            year_info = f" ({min_year}-{max_year})" if year_range else ""
+            st.markdown(f"#### Results{year_info}")
             for result in filtered_results[:n]:
                 col_left, col_right = st.columns([2, 1])
                 with col_left:
@@ -449,7 +508,7 @@ with tab1:
                         st.success(f"Added '{result['Title']}'")
                         st.rerun()
         elif results:
-            st.warning(f"No results found in year range {min_year}-{max_year}. Found {len(results)} results overall.")
+            st.warning(f"No results found in year range {min_year}-{max_year}. Try adjusting your query.")
         else:
             st.warning("No results found.")
 

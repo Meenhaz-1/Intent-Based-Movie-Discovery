@@ -13,30 +13,31 @@ function App() {
   const [selectedProfileId, setSelectedProfileId] = useState(null);
   const [likes, setLikes] = useState([]);
   const [activeTab, setActiveTab] = useState('search');
-  const [loading, setLoading] = useState(false);
 
   // Load profiles on user change
   useEffect(() => {
+    const loadProfiles = async () => {
+      try {
+        const response = await fetch(`${API_URL}/profiles/${userId}`);
+        const data = await response.json();
+        setProfiles(data);
+        if (data.length > 0) {
+          setSelectedProfileId(data[0].profile_id);
+          loadProfileLikesHelper(data[0].profile_id);
+        }
+      } catch (error) {
+        console.error('Error loading profiles:', error);
+      }
+    };
     loadProfiles();
   }, [userId]);
 
-  const loadProfiles = async () => {
-    setLoading(true);
-    try {
-      const response = await fetch(`${API_URL}/profiles/${userId}`);
-      const data = await response.json();
-      setProfiles(data);
-      if (data.length > 0) {
-        setSelectedProfileId(data[0].profile_id);
-        loadProfileLikes(data[0].profile_id);
-      }
-    } catch (error) {
-      console.error('Error loading profiles:', error);
-    }
-    setLoading(false);
+  const handleProfileChange = (profileId) => {
+    setSelectedProfileId(profileId);
+    loadProfileLikesHelper(profileId);
   };
 
-  const loadProfileLikes = async (profileId) => {
+  const loadProfileLikesHelper = async (profileId) => {
     try {
       const response = await fetch(`${API_URL}/movies/${profileId}/likes`);
       const data = await response.json();
@@ -46,11 +47,6 @@ function App() {
     }
   };
 
-  const handleProfileChange = (profileId) => {
-    setSelectedProfileId(profileId);
-    loadProfileLikes(profileId);
-  };
-
   const handleAddMovie = async (movieId) => {
     try {
       await fetch(`${API_URL}/movies/${selectedProfileId}/likes`, {
@@ -58,7 +54,7 @@ function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ profile_id: selectedProfileId, movie_id: movieId })
       });
-      loadProfileLikes(selectedProfileId);
+      loadProfileLikesHelper(selectedProfileId);
     } catch (error) {
       console.error('Error adding movie:', error);
     }
@@ -69,7 +65,7 @@ function App() {
       await fetch(`${API_URL}/movies/${selectedProfileId}/likes/${movieId}`, {
         method: 'DELETE'
       });
-      loadProfileLikes(selectedProfileId);
+      loadProfileLikesHelper(selectedProfileId);
     } catch (error) {
       console.error('Error removing movie:', error);
     }
@@ -99,7 +95,19 @@ function App() {
             profiles={profiles}
             selectedProfileId={selectedProfileId}
             onProfileChange={handleProfileChange}
-            onProfilesUpdate={loadProfiles}
+            onProfilesUpdate={() => {
+              // Reload profiles after creation/deletion
+              const reloadProfiles = async () => {
+                try {
+                  const response = await fetch(`${API_URL}/profiles/${userId}`);
+                  const data = await response.json();
+                  setProfiles(data);
+                } catch (error) {
+                  console.error('Error loading profiles:', error);
+                }
+              };
+              reloadProfiles();
+            }}
             userId={userId}
           />
 

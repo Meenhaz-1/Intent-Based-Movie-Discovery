@@ -97,27 +97,22 @@ async def semantic_search(payload: SearchQuery) -> dict:
 
         # Check for exact title matches first
         query_lower = query.lower().strip()
+        exact_match_ids = set()
         exact_matches = []
         for idx, movie in app_state.movies_df.iterrows():
             title_lower = movie["title"].lower()
             if query_lower in title_lower or title_lower in query_lower:
+                movie_id = int(movie["movieId"])
+                exact_match_ids.add(movie_id)
                 exact_matches.append({
-                    "movie_id": int(movie["movieId"]),
+                    "movie_id": movie_id,
                     "title": movie["title"],
                     "genres": movie.get("genres", ""),
                     "score": 1.0  # Perfect score for exact matches
                 })
 
-        if exact_matches:
-            # Filter exact matches by year
-            filtered_exact = filter_by_year(exact_matches, min_year, max_year)
-            if filtered_exact:
-                return {
-                    "query": query,
-                    "year_range": year_range,
-                    "results": filtered_exact[:limit],
-                    "total": len(filtered_exact)
-                }
+        # Filter exact matches by year
+        filtered_exact = filter_by_year(exact_matches, min_year, max_year)
 
         # Encode query
         query_emb = app_state.embedding_model.encode(query, convert_to_numpy=True)
@@ -130,21 +125,28 @@ async def semantic_search(payload: SearchQuery) -> dict:
             candidate_count
         )
 
-        results = []
+        semantic_results = []
         for pos, idx in enumerate(indices[0]):
             if idx < 0 or idx >= len(app_state.movies_df):
                 continue
 
             movie = app_state.movies_df.iloc[idx]
-            results.append({
-                "movie_id": int(movie["movieId"]),
-                "title": movie["title"],
-                "genres": movie.get("genres", ""),
-                "score": float(distances[0][pos])
-            })
+            movie_id = int(movie["movieId"])
+            # Skip exact matches to avoid duplicates
+            if movie_id not in exact_match_ids:
+                semantic_results.append({
+                    "movie_id": movie_id,
+                    "title": movie["title"],
+                    "genres": movie.get("genres", ""),
+                    "score": float(distances[0][pos])
+                })
 
-        # Filter by year
-        filtered_results = filter_by_year(results, min_year, max_year)
+        # Filter semantic results by year
+        filtered_semantic = filter_by_year(semantic_results, min_year, max_year)
+
+        # Combine: exact matches first, then semantic results
+        combined_results = filtered_exact + filtered_semantic
+        filtered_results = combined_results
 
         return {
             "query": query,
@@ -166,56 +168,56 @@ async def keyword_search(payload: SearchQuery) -> dict:
         # Extract year constraints
         year_range = extract_year_constraints_from_query(query)
 
-        # Check for exact title matches first
-        query_lower = query.lower().strip()
-        exact_matches = []
-        for idx, movie in app_state.movies_df.iterrows():
-            title_lower = movie["title"].lower()
-            if query_lower in title_lower or title_lower in query_lower:
-                exact_matches.append({
-                    "movie_id": int(movie["movieId"]),
-                    "title": movie["title"],
-                    "genres": movie.get("genres", ""),
-                    "score": 100.0  # High score for exact matches
-                })
-
-        if exact_matches:
-            # Filter exact matches by year
-            if year_range:
-                min_year, max_year = year_range
-            else:
-                min_year, max_year = 1900, datetime.now().year
-            filtered_exact = filter_by_year(exact_matches, min_year, max_year)
-            if filtered_exact:
-                return {
-                    "query": query,
-                    "year_range": year_range,
-                    "results": filtered_exact[:limit],
-                    "total": len(filtered_exact)
-                }
+        # Year constraints
         if year_range:
             min_year, max_year = year_range
         else:
             min_year, max_year = 1900, datetime.now().year
 
-        # Search
+        # Check for exact title matches first
+        query_lower = query.lower().strip()
+        exact_match_ids = set()
+        exact_matches = []
+        for idx, movie in app_state.movies_df.iterrows():
+            title_lower = movie["title"].lower()
+            if query_lower in title_lower or title_lower in query_lower:
+                movie_id = int(movie["movieId"])
+                exact_match_ids.add(movie_id)
+                exact_matches.append({
+                    "movie_id": movie_id,
+                    "title": movie["title"],
+                    "genres": movie.get("genres", ""),
+                    "score": 100.0  # High score for exact matches
+                })
+
+        # Filter exact matches by year
+        filtered_exact = filter_by_year(exact_matches, min_year, max_year)
+
+        # Perform BM25 search for other results
         scores = app_state.bm25.get_scores(query.lower().split())
         candidate_count = max(limit * 5, limit + 25)
         top_idx = [idx for idx in range(len(scores)) if scores[idx] > 0]
         top_idx = sorted(top_idx, key=lambda i: scores[i], reverse=True)[:candidate_count]
 
-        results = []
+        other_results = []
         for idx in top_idx:
             movie = app_state.movies_df.iloc[idx]
-            results.append({
-                "movie_id": int(movie["movieId"]),
-                "title": movie["title"],
-                "genres": movie.get("genres", ""),
-                "score": float(scores[idx])
-            })
+            movie_id = int(movie["movieId"])
+            # Skip exact matches to avoid duplicates
+            if movie_id not in exact_match_ids:
+                other_results.append({
+                    "movie_id": movie_id,
+                    "title": movie["title"],
+                    "genres": movie.get("genres", ""),
+                    "score": float(scores[idx])
+                })
 
-        # Filter by year
-        filtered_results = filter_by_year(results, min_year, max_year)
+        # Filter other results by year
+        filtered_other = filter_by_year(other_results, min_year, max_year)
+
+        # Combine: exact matches first, then other results
+        combined_results = filtered_exact + filtered_other
+        filtered_results = combined_results
 
         return {
             "query": query,

@@ -14,6 +14,7 @@ from sentence_transformers import SentenceTransformer
 
 import tmdb_helper
 import db_migration
+import recommendations
 
 load_dotenv()
 
@@ -447,60 +448,116 @@ with tab3:
 
 
 with tab4:
-    st.subheader("Personalized Recommendations")
-    st.caption("The app uses a content-based taste vector from your liked movies.")
+    col_tab1, col_tab2 = st.columns(2)
 
-    if len(liked_ids) == 0:
-        st.info("Use the Search tab to find and like movies.")
-    elif len(liked_ids) < 2:
-        st.warning(f"Add {2 - len(liked_ids)} more movie(s) to see recommendations.")
-    else:
-        n = st.slider("Show", 5, 20, 10)
+    with col_tab1:
+        st.subheader("Personalized Recommendations")
+        st.caption("Content-based taste vector from your likes")
 
-        indices_list = []
-        for movie_id in liked_ids:
-            idx = movies_df[movies_df["movieId"] == movie_id].index
-            if len(idx) > 0:
-                indices_list.append(idx[0])
+        if len(liked_ids) == 0:
+            st.info("Use the Search tab to find and like movies.")
+        elif len(liked_ids) < 2:
+            st.warning(f"Add {2 - len(liked_ids)} more movie(s) to see recommendations.")
+        else:
+            n = st.slider("Show", 5, 20, 10)
 
-        if indices_list:
-            user_emb = embeddings[indices_list].mean(axis=0)
-            norm = np.linalg.norm(user_emb)
-            if norm == 0:
-                st.error("Could not build a preference vector from these likes.")
-                st.stop()
+            # Use new recommendation function
+            recs = recommendations.compute_single_profile_recommendations(
+                conn, selected_profile_id, embeddings, faiss_index, movies_df, n_results=n * 2
+            )
 
-            user_emb = user_emb / norm
-            candidate_count = min(len(movies_df), max(n * 8, n + len(liked_ids) + 50))
-            distances, indices = faiss_index.search(user_emb.astype("float32").reshape(1, -1), candidate_count)
+            if recs:
+                st.markdown(f"#### Based on Your {len(liked_ids)} Likes")
 
-            st.markdown(f"#### Based on Your {len(liked_ids)} Likes")
-            candidates = []
-            for pos, idx in enumerate(indices[0]):
-                if idx < 0 or idx >= len(movies_df):
-                    continue
-                movie = movies_df.iloc[idx]
-                if movie["movieId"] in liked_ids:
-                    continue
-                candidates.append(
-                    {
-                        "movie": movie,
-                        "relevance_score": float(distances[0][pos]),
-                    }
+                # Apply recency ranking
+                candidates = [
+                    {"movie": movies_df[movies_df["movieId"] == rec["movie_id"]].iloc[0], "relevance_score": rec["similarity_score"]}
+                    for rec in recs
+                ]
+                ranked = rank_with_recency(candidates)[:n]
+
+                for candidate in ranked:
+                    movie = candidate["movie"]
+                    col_left, col_right = st.columns([2, 1])
+                    with col_left:
+                        display_movie_card(movie["title"], movie.get("genres", "N/A"), f"{candidate['adjusted_score']:.3f} adjusted")
+                    with col_right:
+                        if st.button("Add", key=f"rec_{movie['movieId']}"):
+                            db_migration.add_movie_to_profile(conn, selected_profile_id, int(movie["movieId"]))
+                            st.success(f"Added '{movie['title']}'")
+                            st.rerun()
+            else:
+                st.error("Could not generate recommendations from the saved likes.")
+
+    with col_tab2:
+        st.subheader("Group Recommendations")
+        st.caption("Find movies for multiple profiles")
+
+        enable_collab = st.checkbox("Enable group watch mode", value=False, key="enable_collab_main")
+
+        if enable_collab:
+            collab_profiles = st.multiselect(
+                "Select profiles",
+                options=[p["profile_id"] for p in user_profiles],
+                format_func=lambda pid: next(p["profile_name"] for p in user_profiles if p["profile_id"] == pid),
+                key="collab_profiles_main",
+            )
+
+            if len(collab_profiles) >= 2:
+                st.markdown(f"### Movies for {len(collab_profiles)} profiles")
+
+                variance_penalty = st.slider(
+                    "Consensus strength",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=0.3,
+                    step=0.1,
+                    help="Higher = stricter consensus. 0.0 = try anything, 1.0 = everyone must agree.",
+                    key="variance_penalty_main",
                 )
 
-            for candidate in rank_with_recency(candidates)[:n]:
-                movie = candidate["movie"]
-                col_left, col_right = st.columns([2, 1])
-                with col_left:
-                    display_movie_card(movie["title"], movie.get("genres", "N/A"), f"{candidate['adjusted_score']:.3f} adjusted")
-                with col_right:
-                    if st.button("Add", key=f"rec_{movie['movieId']}"):
-                        db_migration.add_movie_to_profile(conn, selected_profile_id, int(movie["movieId"]))
-                        st.success(f"Added '{movie['title']}'")
-                        st.rerun()
-        else:
-            st.error("Could not generate recommendations from the saved likes.")
+                n_collab = st.slider("Show group recommendations", 5, 20, 10, key="n_collab_main")
+
+                # Compute collaborative recommendations
+                collab_recs = recommendations.compute_collaborative_recommendations(
+                    conn,
+                    collab_profiles,
+                    embeddings,
+                    faiss_index,
+                    movies_df,
+                    variance_penalty=variance_penalty,
+                    n_results=n_collab,
+                )
+
+                if collab_recs:
+                    st.markdown(f"#### {len(collab_recs)} Results")
+                    for rec in collab_recs:
+                        col_left, col_right = st.columns([2, 1])
+
+                        with col_left:
+                            movie_row = movies_df[movies_df["movieId"] == rec["movie_id"]]
+                            if len(movie_row) > 0:
+                                movie = movie_row.iloc[0]
+                                score_text = f"Consensus: {rec['combined_score']:.3f} | Mean: {rec['mean_similarity']:.3f}"
+                                display_movie_card(movie["title"], movie.get("genres", "N/A"), score_text)
+
+                                # Show per-profile appeal
+                                with st.expander("Profile details"):
+                                    for pid, score in rec["profile_scores"].items():
+                                        pname = next(p["profile_name"] for p in user_profiles if p["profile_id"] == pid)
+                                        st.write(f"**{pname}**: {score:.3f}")
+                                    st.caption(f"Variance: {rec['variance']:.4f} (lower = more consensus)")
+
+                        with col_right:
+                            if st.button("Add to profiles", key=f"collab_rec_{rec['movie_id']}"):
+                                for pid in collab_profiles:
+                                    db_migration.add_movie_to_profile(conn, pid, rec["movie_id"])
+                                st.success(f"Added to {len(collab_profiles)} profiles!")
+                                st.rerun()
+                else:
+                    st.warning("No group recommendations found. Try adjusting the consensus slider.")
+            else:
+                st.info("Select 2+ profiles to see group recommendations.")
 
 
 st.markdown("---")

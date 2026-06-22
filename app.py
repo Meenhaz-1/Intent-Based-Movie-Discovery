@@ -13,6 +13,7 @@ from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer
 
 import tmdb_helper
+import db_migration
 
 load_dotenv()
 
@@ -96,19 +97,7 @@ bm25 = artifacts["bm25"]
 
 
 def init_user_store():
-    CHECKPOINTS_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(CHECKPOINTS_DIR / "user_preferences.sqlite")
-    conn.execute(
-        """CREATE TABLE IF NOT EXISTS user_likes (
-            user_id TEXT,
-            movie_id INTEGER,
-            liked_at TIMESTAMP,
-            review_text TEXT,
-            PRIMARY KEY (user_id, movie_id)
-        )"""
-    )
-    conn.commit()
-    return conn
+    return db_migration.init_database(CHECKPOINTS_DIR / "user_preferences.sqlite")
 
 
 conn = init_user_store()
@@ -198,17 +187,84 @@ def display_movie_card(title, genres, score):
     st.divider()
 
 
-def get_user_likes(user_id):
-    df = pd.read_sql_query(
-        "SELECT movie_id FROM user_likes WHERE user_id = ?",
-        conn,
-        params=(user_id,),
+def get_profile_likes(profile_id):
+    """Get all liked movie IDs for a profile."""
+    return db_migration.get_profile_likes(conn, profile_id)
+
+
+# ============================================================================
+# User & Profile Management
+# ============================================================================
+
+st.sidebar.markdown("### Account")
+user_id = st.sidebar.text_input("User ID", value="demo_user")
+
+# Get user's profiles
+user_profiles = db_migration.get_user_profiles(conn, user_id)
+
+# Ensure default profile exists
+if not user_profiles:
+    try:
+        db_migration.create_profile(conn, user_id, "Default Profile")
+        user_profiles = db_migration.get_user_profiles(conn, user_id)
+    except sqlite3.IntegrityError:
+        user_profiles = db_migration.get_user_profiles(conn, user_id)
+
+if user_profiles:
+    # Profile selector
+    profile_options = {p["profile_id"]: f"{p['profile_name']} ({p['like_count']} likes)" for p in user_profiles}
+    selected_profile_id = st.sidebar.selectbox(
+        "Select Profile",
+        options=list(profile_options.keys()),
+        format_func=lambda pid: profile_options[pid],
+        key="profile_selector",
     )
-    return df["movie_id"].tolist() if len(df) > 0 else []
+else:
+    st.sidebar.warning("No profiles found. Creating default...")
+    default_pid = db_migration.create_profile(conn, user_id, "Default Profile")
+    st.rerun()
 
+# Manage profiles
+with st.sidebar.expander("Manage Profiles", expanded=False):
+    col1, col2, col3 = st.columns(3)
 
-st.sidebar.markdown("### User Profile")
-user_id = st.sidebar.text_input("Your ID", value="demo_user")
+    with col1:
+        if st.button("➕ New", key="new_profile_btn"):
+            st.session_state.show_new_profile_modal = True
+
+    with col2:
+        if st.button("✏️ Rename", key="rename_profile_btn"):
+            st.session_state.show_rename_modal = True
+
+    with col3:
+        if len(user_profiles) > 1:
+            if st.button("🗑️ Delete", key="delete_profile_btn"):
+                db_migration.delete_profile(conn, selected_profile_id)
+                st.success("Profile deleted!")
+                st.rerun()
+
+# Create new profile modal
+if st.session_state.get("show_new_profile_modal"):
+    new_profile_name = st.sidebar.text_input("Profile name", placeholder="e.g., Partner, Kids")
+    if st.sidebar.button("Create Profile", key="create_profile_confirm"):
+        if new_profile_name.strip():
+            db_migration.create_profile(conn, user_id, new_profile_name)
+            st.success(f"Created profile '{new_profile_name}'")
+            st.session_state.show_new_profile_modal = False
+            st.rerun()
+
+# Rename profile modal
+if st.session_state.get("show_rename_modal"):
+    new_name = st.sidebar.text_input("New profile name", value=next(p["profile_name"] for p in user_profiles if p["profile_id"] == selected_profile_id))
+    if st.sidebar.button("Rename", key="rename_confirm"):
+        if new_name.strip():
+            db_migration.rename_profile(conn, selected_profile_id, new_name)
+            st.success("Profile renamed!")
+            st.session_state.show_rename_modal = False
+            st.rerun()
+
+liked_ids = get_profile_likes(selected_profile_id)
+st.sidebar.metric("Movies Liked", len(liked_ids))
 
 st.sidebar.markdown("### TMDB Setup")
 tmdb_key_env = os.getenv("TMDB_API_KEY", "").strip()
@@ -223,9 +279,6 @@ else:
         st.sidebar.success("TMDB connected")
     else:
         st.sidebar.info("Add TMDB_API_KEY to .env or enter a key here to see posters.")
-
-liked_ids = get_user_likes(user_id)
-st.sidebar.metric("Movies Liked", len(liked_ids))
 
 tab1, tab2, tab3, tab4 = st.tabs(["Search", "Similar", "My Likes", "Recommendations"])
 
@@ -331,11 +384,7 @@ with tab1:
                     display_movie_card(result["Title"], result["Genres"], result["Score"])
                 with col_right:
                     if st.button("Add", key=f"add_{result['movieId']}"):
-                        conn.execute(
-                            "INSERT OR REPLACE INTO user_likes (user_id, movie_id, liked_at) VALUES (?, ?, ?)",
-                            (user_id, int(result["movieId"]), datetime.now()),
-                        )
-                        conn.commit()
+                        db_migration.add_movie_to_profile(conn, selected_profile_id, int(result["movieId"]))
                         st.success(f"Added '{result['Title']}'")
                         st.rerun()
         else:
@@ -363,11 +412,7 @@ with tab2:
                 display_movie_card(movie["title"], movie.get("genres", "N/A"), f"{distances[0][rank + 1]:.3f}")
             with col_right:
                 if st.button("Like", key=f"like_{movie['movieId']}"):
-                    conn.execute(
-                        "INSERT OR REPLACE INTO user_likes (user_id, movie_id, liked_at) VALUES (?, ?, ?)",
-                        (user_id, int(movie["movieId"]), datetime.now()),
-                    )
-                    conn.commit()
+                    db_migration.add_movie_to_profile(conn, selected_profile_id, int(movie["movieId"]))
                     st.success(f"Added '{movie['title']}'")
                     st.rerun()
 
@@ -387,16 +432,14 @@ with tab3:
                 display_movie_card(movie.iloc[0]["title"], movie.iloc[0].get("genres", "N/A"), f"#{pos}")
             with col_right:
                 if st.button("Remove", key=f"remove_{movie_id}"):
-                    conn.execute("DELETE FROM user_likes WHERE user_id = ? AND movie_id = ?", (user_id, movie_id))
-                    conn.commit()
+                    db_migration.remove_movie_from_profile(conn, selected_profile_id, movie_id)
                     st.success("Removed")
                     st.rerun()
 
         st.metric("Progress", f"{len(liked_ids)}/15 movies", delta="More likes can improve recommendations")
 
         if st.button("Clear All Likes"):
-            conn.execute("DELETE FROM user_likes WHERE user_id = ?", (user_id,))
-            conn.commit()
+            db_migration.clear_profile_likes(conn, selected_profile_id)
             st.success("Cleared all likes")
             st.rerun()
     else:
@@ -453,11 +496,7 @@ with tab4:
                     display_movie_card(movie["title"], movie.get("genres", "N/A"), f"{candidate['adjusted_score']:.3f} adjusted")
                 with col_right:
                     if st.button("Add", key=f"rec_{movie['movieId']}"):
-                        conn.execute(
-                            "INSERT OR REPLACE INTO user_likes (user_id, movie_id, liked_at) VALUES (?, ?, ?)",
-                            (user_id, int(movie["movieId"]), datetime.now()),
-                        )
-                        conn.commit()
+                        db_migration.add_movie_to_profile(conn, selected_profile_id, int(movie["movieId"]))
                         st.success(f"Added '{movie['title']}'")
                         st.rerun()
         else:

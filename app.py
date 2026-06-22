@@ -116,6 +116,16 @@ def extract_release_year(title):
     return int(match.group(1)) if match else None
 
 
+def filter_by_year(movies_list, min_year, max_year):
+    """Filter movies by release year."""
+    filtered = []
+    for movie in movies_list:
+        year = extract_release_year(movie.get("Title", ""))
+        if year and min_year <= year <= max_year:
+            filtered.append(movie)
+    return filtered
+
+
 def calculate_freshness(title):
     release_year = extract_release_year(title)
     if release_year is None:
@@ -332,6 +342,15 @@ with tab1:
     with col3:
         approach = st.selectbox("Retrieval method", ["Semantic", "Keyword (BM25)"])
 
+    # Year range filter
+    col_year1, col_year2, col_year3 = st.columns([1, 1, 1])
+    with col_year1:
+        min_year = st.number_input("From year", min_value=1900, max_value=2030, value=1900, key="min_year_search")
+    with col_year2:
+        max_year = st.number_input("To year", min_value=1900, max_value=2030, value=2030, key="max_year_search")
+    with col_year3:
+        st.empty()  # For alignment
+
     if query:
         n = st.slider("Results", 5, 20, 10)
         results = []
@@ -414,9 +433,12 @@ with tab1:
                     seen_movie_ids.add(movie["movieId"])
                 st.markdown("#### Keyword Search Results")
 
-        if results:
-            st.markdown("#### Results")
-            for result in results[:n]:
+        # Apply year filter to results
+        filtered_results = filter_by_year(results, min_year, max_year)
+
+        if filtered_results:
+            st.markdown(f"#### Results ({len(filtered_results)} found, filtered by year {min_year}-{max_year})")
+            for result in filtered_results[:n]:
                 col_left, col_right = st.columns([2, 1])
                 with col_left:
                     display_movie_card(result["Title"], result["Genres"], result["Score"])
@@ -426,6 +448,8 @@ with tab1:
                         st.session_state.invalidate_likes_cache = True
                         st.success(f"Added '{result['Title']}'")
                         st.rerun()
+        elif results:
+            st.warning(f"No results found in year range {min_year}-{max_year}. Found {len(results)} results overall.")
         else:
             st.warning("No results found.")
 

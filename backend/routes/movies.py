@@ -20,13 +20,44 @@ class MovieResponse(BaseModel):
     movie_id: int
     title: str
     genres: str
+    poster_url: Optional[str] = None
+    year: Optional[int] = None
 
 
 @router.get("/{profile_id}/likes")
-async def get_profile_likes(profile_id: str) -> List[int]:
-    """Get all liked movie IDs for a profile."""
+async def get_profile_likes(profile_id: str) -> List[MovieResponse]:
+    """Get all liked movies for a profile with full details."""
     try:
-        return db_migration.get_profile_likes(app_state.conn, profile_id)
+        import re
+        movie_ids = db_migration.get_profile_likes(app_state.conn, profile_id)
+        movies = []
+        for movie_id in movie_ids:
+            movie = app_state.movies_df[app_state.movies_df["movieId"] == movie_id]
+            if len(movie) > 0:
+                title = movie.iloc[0]["title"]
+                # Extract year from title (format: "Movie Name (YYYY)")
+                year = None
+                year_match = re.search(r'\((\d{4})\)', title)
+                if year_match:
+                    year = int(year_match.group(1))
+
+                # Try to get poster URL from TMDB if available
+                poster_url = None
+                try:
+                    tmdb_data = tmdb_helper.get_movie_data(movie_id)
+                    if tmdb_data and "poster_path" in tmdb_data:
+                        poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
+                except:
+                    pass
+
+                movies.append({
+                    "movie_id": movie_id,
+                    "title": title,
+                    "genres": movie.iloc[0].get("genres", ""),
+                    "poster_url": poster_url,
+                    "year": year
+                })
+        return movies
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

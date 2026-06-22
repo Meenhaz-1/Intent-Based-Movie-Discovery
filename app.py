@@ -1,8 +1,13 @@
 import os
 import re
 import sqlite3
+import warnings
 from datetime import datetime
 from pathlib import Path
+
+# Suppress unnecessary warnings from transformers library
+warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 import faiss
 import numpy as np

@@ -97,7 +97,9 @@ movies_df = artifacts["movies_df"]
 bm25 = artifacts["bm25"]
 
 
+@st.cache_resource
 def init_user_store():
+    """Cache database connection across reruns."""
     return db_migration.init_database(CHECKPOINTS_DIR / "user_preferences.sqlite")
 
 
@@ -188,41 +190,67 @@ def display_movie_card(title, genres, score):
     st.divider()
 
 
-def get_profile_likes(profile_id):
-    """Get all liked movie IDs for a profile."""
+@st.cache_data(ttl=300)
+def get_profile_likes_cached(profile_id):
+    """Get all liked movie IDs for a profile (cached for 5 minutes)."""
     return db_migration.get_profile_likes(conn, profile_id)
 
 
+def get_profile_likes(profile_id):
+    """Get profile likes with optional cache invalidation."""
+    # Use session state flag to invalidate cache when needed
+    if st.session_state.get("invalidate_likes_cache"):
+        st.cache_data.clear()
+        st.session_state.invalidate_likes_cache = False
+    return get_profile_likes_cached(profile_id)
+
+
 # ============================================================================
-# User & Profile Management
+# User & Profile Management (Optimized)
 # ============================================================================
 
 st.sidebar.markdown("### Account")
-user_id = st.sidebar.text_input("User ID", value="demo_user")
+user_id = st.sidebar.text_input("User ID", value="demo_user", key="user_id_input")
 
-# Get user's profiles
-user_profiles = db_migration.get_user_profiles(conn, user_id)
+# Cache profile list in session state to avoid repeated queries
+if "last_user_id" not in st.session_state or st.session_state.last_user_id != user_id:
+    st.session_state.last_user_id = user_id
+    st.session_state.user_profiles = None
 
-# Ensure default profile exists
-if not user_profiles:
-    try:
-        db_migration.create_profile(conn, user_id, "Default Profile")
-        user_profiles = db_migration.get_user_profiles(conn, user_id)
-    except sqlite3.IntegrityError:
-        user_profiles = db_migration.get_user_profiles(conn, user_id)
+# Load profiles (with session state caching)
+if st.session_state.user_profiles is None:
+    user_profiles = db_migration.get_user_profiles(conn, user_id)
+
+    # Ensure default profile exists
+    if not user_profiles:
+        try:
+            db_migration.create_profile(conn, user_id, "Default Profile")
+            user_profiles = db_migration.get_user_profiles(conn, user_id)
+        except sqlite3.IntegrityError:
+            user_profiles = db_migration.get_user_profiles(conn, user_id)
+
+    st.session_state.user_profiles = user_profiles
+else:
+    user_profiles = st.session_state.user_profiles
 
 if user_profiles:
     # Profile selector
     profile_options = {p["profile_id"]: f"{p['profile_name']} ({p['like_count']} likes)" for p in user_profiles}
+
+    if "selected_profile_id" not in st.session_state:
+        st.session_state.selected_profile_id = user_profiles[0]["profile_id"]
+
     selected_profile_id = st.sidebar.selectbox(
         "Select Profile",
         options=list(profile_options.keys()),
         format_func=lambda pid: profile_options[pid],
         key="profile_selector",
     )
+    st.session_state.selected_profile_id = selected_profile_id
 else:
     st.sidebar.warning("No profiles found. Creating default...")
     default_pid = db_migration.create_profile(conn, user_id, "Default Profile")
+    st.session_state.user_profiles = None
     st.rerun()
 
 # Manage profiles
@@ -230,38 +258,42 @@ with st.sidebar.expander("Manage Profiles", expanded=False):
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("➕ New", key="new_profile_btn"):
+        if st.button("New", key="new_profile_btn"):
             st.session_state.show_new_profile_modal = True
 
     with col2:
-        if st.button("✏️ Rename", key="rename_profile_btn"):
+        if st.button("Rename", key="rename_profile_btn"):
             st.session_state.show_rename_modal = True
 
     with col3:
         if len(user_profiles) > 1:
-            if st.button("🗑️ Delete", key="delete_profile_btn"):
+            if st.button("Delete", key="delete_profile_btn"):
                 db_migration.delete_profile(conn, selected_profile_id)
+                st.session_state.user_profiles = None
                 st.success("Profile deleted!")
                 st.rerun()
 
 # Create new profile modal
 if st.session_state.get("show_new_profile_modal"):
-    new_profile_name = st.sidebar.text_input("Profile name", placeholder="e.g., Partner, Kids")
+    new_profile_name = st.sidebar.text_input("Profile name", placeholder="e.g., Partner, Kids", key="new_profile_name_input")
     if st.sidebar.button("Create Profile", key="create_profile_confirm"):
         if new_profile_name.strip():
             db_migration.create_profile(conn, user_id, new_profile_name)
-            st.success(f"Created profile '{new_profile_name}'")
+            st.session_state.user_profiles = None
             st.session_state.show_new_profile_modal = False
+            st.success(f"Created profile '{new_profile_name}'")
             st.rerun()
 
 # Rename profile modal
 if st.session_state.get("show_rename_modal"):
-    new_name = st.sidebar.text_input("New profile name", value=next(p["profile_name"] for p in user_profiles if p["profile_id"] == selected_profile_id))
+    current_name = next(p["profile_name"] for p in user_profiles if p["profile_id"] == selected_profile_id)
+    new_name = st.sidebar.text_input("New profile name", value=current_name, key="rename_input")
     if st.sidebar.button("Rename", key="rename_confirm"):
-        if new_name.strip():
+        if new_name.strip() and new_name != current_name:
             db_migration.rename_profile(conn, selected_profile_id, new_name)
-            st.success("Profile renamed!")
+            st.session_state.user_profiles = None
             st.session_state.show_rename_modal = False
+            st.success("Profile renamed!")
             st.rerun()
 
 liked_ids = get_profile_likes(selected_profile_id)
@@ -386,6 +418,7 @@ with tab1:
                 with col_right:
                     if st.button("Add", key=f"add_{result['movieId']}"):
                         db_migration.add_movie_to_profile(conn, selected_profile_id, int(result["movieId"]))
+                        st.session_state.invalidate_likes_cache = True
                         st.success(f"Added '{result['Title']}'")
                         st.rerun()
         else:
@@ -414,6 +447,7 @@ with tab2:
             with col_right:
                 if st.button("Like", key=f"like_{movie['movieId']}"):
                     db_migration.add_movie_to_profile(conn, selected_profile_id, int(movie["movieId"]))
+                    st.session_state.invalidate_likes_cache = True
                     st.success(f"Added '{movie['title']}'")
                     st.rerun()
 
@@ -434,6 +468,7 @@ with tab3:
             with col_right:
                 if st.button("Remove", key=f"remove_{movie_id}"):
                     db_migration.remove_movie_from_profile(conn, selected_profile_id, movie_id)
+                    st.session_state.invalidate_likes_cache = True
                     st.success("Removed")
                     st.rerun()
 
@@ -441,6 +476,7 @@ with tab3:
 
         if st.button("Clear All Likes"):
             db_migration.clear_profile_likes(conn, selected_profile_id)
+            st.session_state.invalidate_likes_cache = True
             st.success("Cleared all likes")
             st.rerun()
     else:
@@ -484,6 +520,7 @@ with tab4:
                     with col_right:
                         if st.button("Add", key=f"rec_{movie['movieId']}"):
                             db_migration.add_movie_to_profile(conn, selected_profile_id, int(movie["movieId"]))
+                            st.session_state.invalidate_likes_cache = True
                             st.success(f"Added '{movie['title']}'")
                             st.rerun()
             else:
@@ -552,6 +589,7 @@ with tab4:
                             if st.button("Add to profiles", key=f"collab_rec_{rec['movie_id']}"):
                                 for pid in collab_profiles:
                                     db_migration.add_movie_to_profile(conn, pid, rec["movie_id"])
+                                st.session_state.invalidate_likes_cache = True
                                 st.success(f"Added to {len(collab_profiles)} profiles!")
                                 st.rerun()
                 else:

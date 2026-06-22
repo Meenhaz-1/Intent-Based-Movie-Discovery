@@ -95,6 +95,30 @@ async def semantic_search(payload: SearchQuery) -> dict:
         else:
             min_year, max_year = 1900, datetime.now().year
 
+        # Check for exact title matches first
+        query_lower = query.lower().strip()
+        exact_matches = []
+        for idx, movie in app_state.movies_df.iterrows():
+            title_lower = movie["title"].lower()
+            if query_lower in title_lower or title_lower in query_lower:
+                exact_matches.append({
+                    "movie_id": int(movie["movieId"]),
+                    "title": movie["title"],
+                    "genres": movie.get("genres", ""),
+                    "score": 1.0  # Perfect score for exact matches
+                })
+
+        if exact_matches:
+            # Filter exact matches by year
+            filtered_exact = filter_by_year(exact_matches, min_year, max_year)
+            if filtered_exact:
+                return {
+                    "query": query,
+                    "year_range": year_range,
+                    "results": filtered_exact[:limit],
+                    "total": len(filtered_exact)
+                }
+
         # Encode query
         query_emb = app_state.embedding_model.encode(query, convert_to_numpy=True)
         query_emb = query_emb / np.linalg.norm(query_emb)
@@ -141,6 +165,34 @@ async def keyword_search(payload: SearchQuery) -> dict:
 
         # Extract year constraints
         year_range = extract_year_constraints_from_query(query)
+
+        # Check for exact title matches first
+        query_lower = query.lower().strip()
+        exact_matches = []
+        for idx, movie in app_state.movies_df.iterrows():
+            title_lower = movie["title"].lower()
+            if query_lower in title_lower or title_lower in query_lower:
+                exact_matches.append({
+                    "movie_id": int(movie["movieId"]),
+                    "title": movie["title"],
+                    "genres": movie.get("genres", ""),
+                    "score": 100.0  # High score for exact matches
+                })
+
+        if exact_matches:
+            # Filter exact matches by year
+            if year_range:
+                min_year, max_year = year_range
+            else:
+                min_year, max_year = 1900, datetime.now().year
+            filtered_exact = filter_by_year(exact_matches, min_year, max_year)
+            if filtered_exact:
+                return {
+                    "query": query,
+                    "year_range": year_range,
+                    "results": filtered_exact[:limit],
+                    "total": len(filtered_exact)
+                }
         if year_range:
             min_year, max_year = year_range
         else:

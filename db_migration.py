@@ -140,9 +140,13 @@ def init_database(db_path: Path) -> sqlite3.Connection:
 
     If the old single-user schema exists, migrates it automatically.
     Returns the database connection.
+
+    Note: check_same_thread=False is used to allow the connection to be
+    used across different threads (Streamlit reruns in different threads).
+    This is safe for a single-user Streamlit app.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
 
     # Check if old schema exists
     if table_exists(conn, "user_likes") and not table_exists(conn, "profiles"):

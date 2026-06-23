@@ -3,9 +3,11 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
+import re
 
 import db_migration
 from main import app_state
+import tmdb_helper
 
 router = APIRouter()
 
@@ -28,7 +30,6 @@ class MovieResponse(BaseModel):
 async def get_profile_likes(profile_id: str) -> List[MovieResponse]:
     """Get all liked movies for a profile with full details."""
     try:
-        import re
         movie_ids = db_migration.get_profile_likes(app_state.conn, profile_id)
         movies = []
         for movie_id in movie_ids:
@@ -44,8 +45,8 @@ async def get_profile_likes(profile_id: str) -> List[MovieResponse]:
                 # Try to get poster URL from TMDB if available
                 poster_url = None
                 try:
-                    tmdb_data = tmdb_helper.get_movie_data(movie_id)
-                    if tmdb_data and "poster_path" in tmdb_data:
+                    tmdb_data = tmdb_helper.fetch_movie_info(title, year)
+                    if tmdb_data and tmdb_data.get("poster_path"):
                         poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
                 except:
                     pass

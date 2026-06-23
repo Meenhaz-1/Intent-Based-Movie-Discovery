@@ -13,15 +13,22 @@ function RecommendationsPanel({ profiles, selectedProfileId, onAddMovie }) {
     setLoading(true);
     try {
       if (mode === 'single') {
-        const response = await fetch(
-          `${API_URL}/recommendations/single/${selectedProfileId}`
-        );
+        const response = await fetch(`${API_URL}/recommendations/single-profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: selectedProfileId })
+        });
         const data = await response.json();
         setRecommendations(data.recommendations || []);
       } else {
-        const response = await fetch(
-          `${API_URL}/recommendations/collaborative?profile_ids=${selectedProfiles.join(',')}&variance_penalty=${variancePenalty}`
-        );
+        const response = await fetch(`${API_URL}/recommendations/collaborative`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile_ids: selectedProfiles,
+            variance_penalty: variancePenalty
+          })
+        });
         const data = await response.json();
         setRecommendations(data.recommendations || []);
       }

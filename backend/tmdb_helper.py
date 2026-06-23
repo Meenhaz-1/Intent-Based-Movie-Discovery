@@ -56,8 +56,8 @@ def search_tmdb(title, year=None):
                         return r
             return results[0]
         return None
-    except Exception as e:
-        print(f"TMDB search error: {e}")
+    except Exception:
+        # Silently fail - TMDB is optional
         return None
 
 def get_movie_details(tmdb_id):
@@ -75,8 +75,8 @@ def get_movie_details(tmdb_id):
         response = requests.get(url, params=params, timeout=5)
         response.raise_for_status()
         return response.json()
-    except Exception as e:
-        print(f"TMDB details error: {e}")
+    except Exception:
+        # Silently fail - TMDB is optional
         return None
 
 def fetch_movie_info(movie_title, release_year=None):

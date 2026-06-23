@@ -1,0 +1,62 @@
+name: Automated Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      # Start backend API for tests
+      backend:
+        image: python:3.11
+        options: >-
+          --health-cmd "curl -f http://localhost:8000/api/search/semantic -X POST -H 'Content-Type: application/json' -d '{\"query\":\"test\"}' || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 8000:8000
+        env:
+          PYTHONUNBUFFERED: 1
+        run: |
+          cd backend
+          pip install -q -r requirements.txt
+          python -m uvicorn src.main:app --host 0.0.0.0 --port 8000
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install test dependencies
+      run: |
+        pip install -q -r backend/requirements-test.txt
+
+    - name: Wait for backend to be ready
+      run: |
+        for i in {1..30}; do
+          curl -f http://localhost:8000/api/search/semantic \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"query":"test"}' && break || sleep 2
+        done
+
+    - name: Run automated tests
+      run: |
+        cd backend
+        python -m pytest tests/test_five_user_flows.py -v --tb=short
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: backend/test-results/

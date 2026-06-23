@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 import numpy as np
 from main import app_state
+import tmdb_helper
 
 router = APIRouter()
 
@@ -17,6 +18,9 @@ class SearchResult(BaseModel):
     title: str
     genres: str
     score: float
+    year: Optional[int] = None
+    poster_url: Optional[str] = None
+    overview: Optional[str] = None
 
 
 class SearchQuery(BaseModel):
@@ -104,11 +108,25 @@ async def semantic_search(payload: SearchQuery) -> dict:
             if query_lower in title_lower or title_lower in query_lower:
                 movie_id = int(movie["movieId"])
                 exact_match_ids.add(movie_id)
+                title = movie["title"]
+                year = extract_release_year(title)
+
+                # Try to get poster URL from TMDB
+                poster_url = None
+                try:
+                    tmdb_data = tmdb_helper.fetch_movie_info(title, year)
+                    if tmdb_data and tmdb_data.get("poster_path"):
+                        poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
+                except:
+                    pass
+
                 exact_matches.append({
                     "movie_id": movie_id,
-                    "title": movie["title"],
+                    "title": title,
                     "genres": movie.get("genres", ""),
-                    "score": 1.0  # Perfect score for exact matches
+                    "score": 1.0,  # Perfect score for exact matches
+                    "year": year,
+                    "poster_url": poster_url
                 })
 
         # Filter exact matches by year
@@ -134,11 +152,25 @@ async def semantic_search(payload: SearchQuery) -> dict:
             movie_id = int(movie["movieId"])
             # Skip exact matches to avoid duplicates
             if movie_id not in exact_match_ids:
+                title = movie["title"]
+                year = extract_release_year(title)
+
+                # Try to get poster URL from TMDB
+                poster_url = None
+                try:
+                    tmdb_data = tmdb_helper.fetch_movie_info(title, year)
+                    if tmdb_data and tmdb_data.get("poster_path"):
+                        poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
+                except:
+                    pass
+
                 semantic_results.append({
                     "movie_id": movie_id,
-                    "title": movie["title"],
+                    "title": title,
                     "genres": movie.get("genres", ""),
-                    "score": float(distances[0][pos])
+                    "score": float(distances[0][pos]),
+                    "year": year,
+                    "poster_url": poster_url
                 })
 
         # Filter semantic results by year
@@ -205,11 +237,25 @@ async def keyword_search(payload: SearchQuery) -> dict:
             movie_id = int(movie["movieId"])
             # Skip exact matches to avoid duplicates
             if movie_id not in exact_match_ids:
+                title = movie["title"]
+                year = extract_release_year(title)
+
+                # Try to get poster URL from TMDB
+                poster_url = None
+                try:
+                    tmdb_data = tmdb_helper.fetch_movie_info(title, year)
+                    if tmdb_data and tmdb_data.get("poster_path"):
+                        poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
+                except:
+                    pass
+
                 other_results.append({
                     "movie_id": movie_id,
-                    "title": movie["title"],
+                    "title": title,
                     "genres": movie.get("genres", ""),
-                    "score": float(scores[idx])
+                    "score": float(scores[idx]),
+                    "year": year,
+                    "poster_url": poster_url
                 })
 
         # Filter other results by year

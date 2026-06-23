@@ -1,11 +1,13 @@
 """Recommendation endpoints for single-profile and collaborative modes."""
 
+import re
 from typing import List, Dict, Any, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import recommendations
 from main import app_state
+import tmdb_helper
 
 router = APIRouter()
 
@@ -15,6 +17,8 @@ class RecommendationResult(BaseModel):
     title: str
     genres: str
     similarity_score: Optional[float] = None
+    year: Optional[int] = None
+    poster_url: Optional[str] = None
 
 
 class CollaborativeRecommendationResult(BaseModel):
@@ -25,6 +29,8 @@ class CollaborativeRecommendationResult(BaseModel):
     mean_similarity: float
     variance: float
     profile_scores: Dict[str, float]
+    year: Optional[int] = None
+    poster_url: Optional[str] = None
 
 
 class SingleProfileRequest(BaseModel):
@@ -55,11 +61,27 @@ async def get_single_profile_recommendations(payload: SingleProfileRequest) -> d
         for rec in recs:
             movie = app_state.movies_df[app_state.movies_df["movieId"] == rec["movie_id"]]
             if len(movie) > 0:
+                title = movie.iloc[0]["title"]
+                # Extract year from title
+                year_match = re.search(r'\((\d{4})\)', title)
+                year = int(year_match.group(1)) if year_match else None
+
+                # Try to get poster URL from TMDB
+                poster_url = None
+                try:
+                    tmdb_data = tmdb_helper.fetch_movie_info(title, year)
+                    if tmdb_data and tmdb_data.get("poster_path"):
+                        poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
+                except:
+                    pass
+
                 results.append({
                     "movie_id": rec["movie_id"],
-                    "title": movie.iloc[0]["title"],
+                    "title": title,
                     "genres": movie.iloc[0].get("genres", ""),
-                    "similarity_score": rec["similarity_score"]
+                    "similarity_score": rec["similarity_score"],
+                    "year": year,
+                    "poster_url": poster_url
                 })
 
         return {
@@ -92,14 +114,30 @@ async def get_collaborative_recommendations(payload: CollaborativeRequest) -> di
         for rec in recs:
             movie = app_state.movies_df[app_state.movies_df["movieId"] == rec["movie_id"]]
             if len(movie) > 0:
+                title = movie.iloc[0]["title"]
+                # Extract year from title
+                year_match = re.search(r'\((\d{4})\)', title)
+                year = int(year_match.group(1)) if year_match else None
+
+                # Try to get poster URL from TMDB
+                poster_url = None
+                try:
+                    tmdb_data = tmdb_helper.fetch_movie_info(title, year)
+                    if tmdb_data and tmdb_data.get("poster_path"):
+                        poster_url = f"https://image.tmdb.org/t/p/w500{tmdb_data['poster_path']}"
+                except:
+                    pass
+
                 results.append({
                     "movie_id": rec["movie_id"],
-                    "title": movie.iloc[0]["title"],
+                    "title": title,
                     "genres": movie.iloc[0].get("genres", ""),
                     "combined_score": rec["combined_score"],
                     "mean_similarity": rec["mean_similarity"],
                     "variance": rec["variance"],
-                    "profile_scores": rec["profile_scores"]
+                    "profile_scores": rec["profile_scores"],
+                    "year": year,
+                    "poster_url": poster_url
                 })
 
         return {
